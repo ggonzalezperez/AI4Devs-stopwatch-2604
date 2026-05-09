@@ -671,8 +671,10 @@
     document.addEventListener('keydown', (e) => {
       if (currentView !== 'stopwatch') return;
       if (e.key === 'Enter' || e.key === ' ') {
-        // Let the focused button's default fire if it's already a button.
-        if (document.activeElement && document.activeElement.tagName === 'BUTTON') return;
+        // Avoid double-firing only when the toggle itself is focused; for any
+        // other focus target Enter/Space must still toggle Start/Pause/Continue
+        // per spec.
+        if (document.activeElement === swStart) return;
         e.preventDefault();
         swStart.click();
         return;
