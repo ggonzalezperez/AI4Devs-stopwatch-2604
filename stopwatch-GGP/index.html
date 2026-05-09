@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Stopwatch &amp; Countdown</title>
+<style>
+  /* ---------- Tokens ---------- */
+  :root {
+    --green:      #00B050;
+    --green-dark: #008c40;
+    --green-soft: #7fdd9f;
+    --red:        #E60000;
+    --red-soft:   #f59595;
+    --amber:      #F2B030;
+    --blue:       #1F4E9D;
+    --lila:       #E8E8FF;
+    --grey:       #BFBFBF;
+    --grey-dark:  #888;
+    --bg-cream:   #FFFFFF;
+    --bg-mint:    #EEF7EE;
+    --ink:        #111111;
+    --border:     6px solid var(--ink);
+    --radius:     22px;
+    --shadow:     0 4px 0 rgba(0,0,0,0.10);
+  }
+
+  /* ---------- Reset ---------- */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+  button {
+    font-family: inherit;
+    cursor: pointer;
+    background: none;
+    border: none;
+    color: inherit;
+  }
+  :focus-visible {
+    outline: 3px solid #2c8efc;
+    outline-offset: 3px;
+  }
+
+  /* ---------- App layout ---------- */
+  .topbar, .bottombar {
+    flex: 0 0 auto;
+    background: var(--blue);
+    color: #fff;
+    text-align: center;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    padding: 8px 12px;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .bottombar { justify-content: flex-start; padding: 6px 16px; }
+  main {
+    flex: 1 1 auto;
+    position: relative;
+    overflow: hidden;
+  }
+  .view {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    gap: 24px;
+  }
+  .view[hidden] { display: none !important; }
+
+  /* ---------- Selector view ---------- */
+  #view-selector {
+    padding: 0;
+    flex-direction: row;
+  }
+  .card {
+    flex: 1 1 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    cursor: pointer;
+    user-select: none;
+    transition: filter 120ms ease;
+  }
+  .card:hover { filter: brightness(0.97); }
+  .card:focus-visible { outline-offset: -6px; }
+  .card-stopwatch { background: var(--bg-cream); border-right: 1px solid #d8d8d8; }
+  .card-countdown { background: var(--bg-mint); }
+  .card h2 {
+    margin: 0;
+    font-size: clamp(28px, 5vw, 48px);
+    font-weight: 500;
+  }
+  .big-arrow { width: clamp(110px, 20vw, 220px); height: auto; }
+
+  /* ---------- Display (timer) ---------- */
+  .display {
+    position: relative;
+    width: min(820px, 100%);
+    background: var(--lila);
+    border: var(--border);
+    border-radius: var(--radius);
+    padding: 14px 36px 14px 36px;
+    text-align: center;
+    line-height: 1;
+    box-shadow: var(--shadow);
+  }
+  .display-text, .display-input {
+    display: inline-block;
+    font-weight: 700;
+    font-size: clamp(64px, 13vw, 150px);
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .display-input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    text-align: center;
+    color: inherit;
+    padding: 0;
+    margin: 0;
+    font-family: inherit;
+    outline: none;
+  }
+  /* The `hidden` attribute would normally apply display:none, but our
+     explicit display rule above overrides it. Re-assert it. */
+  .display-text[hidden],
+  .display-input[hidden] { display: none !important; }
+  .display-input::-webkit-inner-spin-button { display: none; }
+  .display-ms {
+    position: absolute;
+    right: 28px;
+    bottom: 12px;
+    font-size: clamp(14px, 2vw, 22px);
+    font-weight: 600;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .display.editable { cursor: text; }
+  .display.editing  { box-shadow: 0 0 0 3px #2c8efc, var(--shadow); }
+  .display.error    { border-color: var(--red); }
+  .display.error.shake { animation: display-shake 0.4s ease; }
+
+  /* Blink animation when countdown reaches zero */
+  @keyframes display-blink {
+    0%, 49%   { background: var(--lila); color: var(--ink); }
+    50%, 100% { background: var(--red);  color: #fff; }
+  }
+  .display.blinking { animation: display-blink 0.5s step-end 5; }
+  @keyframes display-shake {
+    0%, 100% { transform: none; }
+    20%, 60% { transform: translateX(-8px); }
+    40%, 80% { transform: translateX(8px); }
+  }
+
+  .display-error {
+    margin: -8px 0 0 0;
+    color: var(--red);
+    font-size: 15px;
+    font-weight: 600;
+    text-align: center;
+    min-height: 18px;
+  }
+  .display-error[hidden] { display: none; }
+
+  /* ---------- Stopwatch controls ---------- */
+  .controls-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    width: min(820px, 100%);
+  }
+  .btn {
+    border: var(--border);
+    border-radius: var(--radius);
+    font-weight: 500;
+    font-size: clamp(36px, 6vw, 64px);
+    padding: 26px 0;
+    box-shadow: var(--shadow);
+    transition: transform 60ms ease, filter 120ms ease;
+  }
+  .btn:hover { filter: brightness(0.96); }
+  .btn:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0,0,0,0.12); }
+  .btn-green  { background: var(--green); }
+  .btn-amber  { background: var(--amber); }
+  .btn-red    { background: var(--red);  color: #fff; }
+  .btn-grey   { background: var(--grey); }
+  .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+
+  /* ---------- Countdown keypad ---------- */
+  .keypad {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 14px;
+    width: min(820px, 100%);
+  }
+  .key {
+    border: var(--border);
+    border-radius: 18px;
+    background: var(--green);
+    font-weight: 500;
+    font-size: clamp(28px, 5vw, 52px);
+    padding: 18px 0;
+    box-shadow: var(--shadow);
+    transition: transform 60ms ease, filter 120ms ease;
+  }
+  .key:hover  { filter: brightness(0.96); }
+  .key:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0,0,0,0.12); }
+  .key-clear  { background: var(--grey); }
+
+  /* ---------- Back button ---------- */
+  .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #fff;
+    font-size: 18px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 6px;
+  }
+  .back-btn[hidden] { display: none; }
+  .back-btn:hover { background: rgba(255,255,255,0.12); }
+  .back-btn svg { width: 22px; height: 22px; }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 480px) {
+    .view { padding: 12px; gap: 16px; }
+    .display { padding: 10px 18px; }
+    .display-text, .display-input { font-size: 56px; }
+    .display-ms { right: 14px; bottom: 8px; }
+    .controls-row { gap: 12px; }
+    .btn { padding: 16px 0; font-size: 32px; }
+    .keypad { gap: 8px; }
+    .key { padding: 12px 0; font-size: 26px; }
+  }
+  @media (max-width: 360px) {
+    .display-text, .display-input { font-size: 44px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar" id="appTitle" aria-label="Application title"></header>
+
+<main>
+  <!-- ============ Selector ============ -->
+  <section id="view-selector" class="view" aria-label="Mode selector">
+    <button type="button" class="card card-stopwatch" data-target="stopwatch" aria-label="Open Stopwatch">
+      <h2>Stopwatch</h2>
+      <svg class="big-arrow" viewBox="0 0 100 120" aria-hidden="true">
+        <defs>
+          <linearGradient id="grad-green" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0"   stop-color="#7fdd9f"/>
+            <stop offset="0.5" stop-color="#00C050"/>
+            <stop offset="1"   stop-color="#7fdd9f"/>
+          </linearGradient>
+        </defs>
+        <path d="M50 6 L94 56 L72 56 L72 114 L28 114 L28 56 L6 56 Z"
+              fill="url(#grad-green)" stroke="#1a1a1a" stroke-width="6" stroke-linejoin="round"/>
+      </svg>
+    </button>
+
+    <button type="button" class="card card-countdown" data-target="countdown" aria-label="Open Countdown">
+      <h2>Countdown</h2>
+      <svg class="big-arrow" viewBox="0 0 100 120" aria-hidden="true">
+        <defs>
+          <linearGradient id="grad-red" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0"   stop-color="#f59595"/>
+            <stop offset="0.5" stop-color="#E60000"/>
+            <stop offset="1"   stop-color="#f59595"/>
+          </linearGradient>
+        </defs>
+        <path d="M50 114 L94 64 L72 64 L72 6 L28 6 L28 64 L6 64 Z"
+              fill="url(#grad-red)" stroke="#1a1a1a" stroke-width="6" stroke-linejoin="round"/>
+      </svg>
+    </button>
+  </section>
+
+  <!-- ============ Stopwatch ============ -->
+  <section id="view-stopwatch" class="view" hidden aria-label="Stopwatch">
+    <div class="display" role="timer" aria-live="off" id="sw-display">
+      <span class="display-text" id="sw-text">00:00:00</span>
+      <span class="display-ms"   id="sw-ms">000</span>
+    </div>
+    <div class="controls-row">
+      <button type="button" class="btn btn-green" id="sw-start">Start</button>
+      <button type="button" class="btn btn-red"   id="sw-clear">Clear</button>
+    </div>
+  </section>
+
+  <!-- ============ Countdown ============ -->
+  <section id="view-countdown" class="view" hidden aria-label="Countdown">
+    <div class="display editable" role="timer" aria-live="off" id="cd-display" tabindex="0"
+         aria-label="Countdown display, click or press Enter to edit">
+      <span class="display-text" id="cd-text">00:00:00</span>
+      <input class="display-input" id="cd-input" hidden inputmode="numeric"
+             aria-label="Edit countdown time, format HH:MM:SS" maxlength="8"
+             autocomplete="off" spellcheck="false" />
+      <span class="display-ms" id="cd-ms">000</span>
+    </div>
+    <p class="display-error" id="cd-error" role="alert" hidden>
+      Invalid time. Use HH:MM:SS (digits and colons only, max 2 digits per group).
+    </p>
+
+    <div class="keypad" id="cd-keypad">
+      <button type="button" class="key" data-digit="5">5</button>
+      <button type="button" class="key" data-digit="6">6</button>
+      <button type="button" class="key" data-digit="7">7</button>
+      <button type="button" class="key" data-digit="8">8</button>
+      <button type="button" class="key" data-digit="9">9</button>
+      <button type="button" class="key key-set"   id="cd-set">Set</button>
+
+      <button type="button" class="key" data-digit="0">0</button>
+      <button type="button" class="key" data-digit="1">1</button>
+      <button type="button" class="key" data-digit="2">2</button>
+      <button type="button" class="key" data-digit="3">3</button>
+      <button type="button" class="key" data-digit="4">4</button>
+      <button type="button" class="key key-clear" id="cd-clear">Clear</button>
+    </div>
+
+    <div class="controls-row" id="cd-running-controls" hidden>
+      <button type="button" class="btn btn-green" id="cd-pause">Pause</button>
+      <button type="button" class="btn btn-red"   id="cd-stop">Clear</button>
+    </div>
+  </section>
+</main>
+
+<footer class="bottombar">
+  <button type="button" class="back-btn" id="back-btn" hidden aria-label="Back to selector">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 12 L11 5 L11 9 L22 9 L22 15 L11 15 L11 19 Z"
+            fill="#00C050" stroke="#0a0a0a" stroke-width="1.5" stroke-linejoin="round"/>
+    </svg>
+    Back
+  </button>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>

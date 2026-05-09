@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tests — Stopwatch &amp; Countdown</title>
+<style>
+  body { font-family: ui-monospace, Menlo, Consolas, monospace; padding: 16px; background:#0f1117; color:#dee3ec; }
+  h1 { color:#fff; margin: 0 0 12px 0; font-size: 20px; }
+  #summary { padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-weight: 600; }
+  #summary.ok   { background: #173d22; color:#9bf0aa; }
+  #summary.fail { background: #3d1f17; color:#f29b9b; }
+  ol { margin: 0; padding-left: 22px; }
+  li { padding: 3px 0; }
+  .ok   { color:#9bf0aa; }
+  .fail { color:#f29b9b; }
+  .err  { color:#ffd479; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Stopwatch &amp; Countdown — unit tests</h1>
+<div id="summary">Running...</div>
+<ol id="results"></ol>
+
+<!-- Load production code. The IIFE attaches `App` to window. -->
+<script src="script.js"></script>
+
+<script>
+(function () {
+  const App = window.App;
+  const results = document.getElementById('results');
+  const summary = document.getElementById('summary');
+  let pass = 0, fail = 0;
+
+  /** Tiny assertion helpers — equality by JSON to keep messages compact. */
+  function assertEq(actual, expected, label) {
+    const a = JSON.stringify(actual), b = JSON.stringify(expected);
+    if (a !== b) throw new Error(`${label || ''} expected ${b}, got ${a}`);
+  }
+  function assertTrue(v, label) {
+    if (!v) throw new Error(`${label || 'assertion failed'}`);
+  }
+  function test(name, fn) {
+    const li = document.createElement('li');
+    try {
+      fn();
+      li.innerHTML = `<span class="ok">PASS</span> &nbsp; ${name}`;
+      pass++;
+    } catch (e) {
+      li.innerHTML = `<span class="fail">FAIL</span> &nbsp; ${name}<br><span class="err">${e.message}</span>`;
+      fail++;
+    }
+    results.appendChild(li);
+  }
+
+  /* ---------------- formatTime ---------------- */
+  test('formatTime(0)', () => {
+    const r = App.formatTime(0);
+    assertEq(r.display, '00:00:00');
+    assertEq(r.milliText, '000');
+  });
+  test('formatTime(1234)', () => {
+    const r = App.formatTime(1234);
+    assertEq(r.display, '00:00:01');
+    assertEq(r.milliText, '234');
+  });
+  test('formatTime(60000)', () => {
+    const r = App.formatTime(60000);
+    assertEq(r.display, '00:01:00');
+    assertEq(r.milliText, '000');
+  });
+  test('formatTime(3661500)', () => {
+    const r = App.formatTime(3661500);
+    assertEq(r.display, '01:01:01');
+    assertEq(r.milliText, '500');
+  });
+  test('formatTime negative -> 0', () => {
+    const r = App.formatTime(-100);
+    assertEq(r.display, '00:00:00');
+    assertEq(r.milliText, '000');
+  });
+  test('formatTime caps hours at 99', () => {
+    const r = App.formatTime((100 * 3600 + 5) * 1000);
+    assertEq(r.hours, 99);
+  });
+
+  /* ---------------- keypadShiftIn / Backspace ---------------- */
+  test('keypadShiftIn empty', () => {
+    assertEq(App.keypadShiftIn('', '5'), '5');
+  });
+  test('keypadShiftIn growing', () => {
+    let b = '';
+    b = App.keypadShiftIn(b, '1'); assertEq(b, '1');
+    b = App.keypadShiftIn(b, '2'); assertEq(b, '12');
+    b = App.keypadShiftIn(b, '3'); assertEq(b, '123');
+  });
+  test('keypadShiftIn caps at 6 chars', () => {
+    assertEq(App.keypadShiftIn('123456', '7'), '234567');
+  });
+  test('keypadShiftIn rejects non-digit', () => {
+    let threw = false;
+    try { App.keypadShiftIn('1', 'a'); } catch (_) { threw = true; }
+    assertTrue(threw, 'expected throw on bad digit');
+  });
+  test('keypadBackspace', () => {
+    assertEq(App.keypadBackspace('1234'), '123');
+    assertEq(App.keypadBackspace(''), '');
+    assertEq(App.keypadBackspace('1'), '');
+  });
+
+  /* ---------------- bufferToMs / msToBuffer ---------------- */
+  test('bufferToMs empty -> 0', () => {
+    assertEq(App.bufferToMs(''), 0);
+  });
+  test('bufferToMs "90" -> 90s', () => {
+    assertEq(App.bufferToMs('90'), 90 * 1000);
+  });
+  test('bufferToMs "1234" -> 12m34s', () => {
+    assertEq(App.bufferToMs('1234'), (12 * 60 + 34) * 1000);
+  });
+  test('bufferToMs "9999" normalises (99m99s)', () => {
+    assertEq(App.bufferToMs('9999'), (99 * 60 + 99) * 1000);
+  });
+  test('bufferToMs "010000" -> 1h', () => {
+    assertEq(App.bufferToMs('010000'), 3600 * 1000);
+  });
+  test('msToBuffer round-trip 90s', () => {
+    const ms = 90 * 1000;
+    assertEq(App.msToBuffer(ms), '130'); // 00:01:30 -> "000130" -> "130"
+    assertEq(App.bufferToMs(App.msToBuffer(ms)), ms);
+  });
+  test('msToBuffer round-trip 1h', () => {
+    const ms = 3600 * 1000;
+    assertEq(App.msToBuffer(ms), '10000');
+    assertEq(App.bufferToMs(App.msToBuffer(ms)), ms);
+  });
+  test('msToBuffer 0 -> empty', () => {
+    assertEq(App.msToBuffer(0), '');
+  });
+
+  /* ---------------- parseDisplayString ---------------- */
+  test('parseDisplayString empty -> 0', () => {
+    assertEq(App.parseDisplayString(''), 0);
+  });
+  test('parseDisplayString "30" -> 30s', () => {
+    assertEq(App.parseDisplayString('30'), 30 * 1000);
+  });
+  test('parseDisplayString "1:30" -> 1m30s', () => {
+    assertEq(App.parseDisplayString('1:30'), 90 * 1000);
+  });
+  test('parseDisplayString "01:30:00" -> 1h30m', () => {
+    assertEq(App.parseDisplayString('01:30:00'), (90 * 60) * 1000);
+  });
+  test('parseDisplayString "abc" -> null', () => {
+    assertEq(App.parseDisplayString('abc'), null);
+  });
+  test('parseDisplayString "1:2:3:4" -> null', () => {
+    assertEq(App.parseDisplayString('1:2:3:4'), null);
+  });
+  test('parseDisplayString "100:00" rejects part > 2 digits', () => {
+    assertEq(App.parseDisplayString('100:00'), null);
+  });
+  test('parseDisplayString "1234567" too long -> null', () => {
+    assertEq(App.parseDisplayString('1234567'), null);
+  });
+  test('parseDisplayString "99:99:99" normalises', () => {
+    assertEq(App.parseDisplayString('99:99:99'), (99 * 3600 + 99 * 60 + 99) * 1000);
+  });
+  test('parseDisplayString "1:30" round-trips through msToBuffer', () => {
+    const ms = App.parseDisplayString('1:30');
+    assertEq(App.msToBuffer(ms), '130');
+  });
+
+  /* ---------------- isValidPartialMask ---------------- */
+  test('isValidPartialMask empty', () => {
+    assertEq(App.isValidPartialMask(''), true);
+  });
+  test('isValidPartialMask digits and colons OK', () => {
+    assertEq(App.isValidPartialMask('1'), true);
+    assertEq(App.isValidPartialMask('12'), true);
+    assertEq(App.isValidPartialMask('12:'), true);
+    assertEq(App.isValidPartialMask('12:34'), true);
+    assertEq(App.isValidPartialMask('12:34:56'), true);
+    assertEq(App.isValidPartialMask(':'), true);
+    assertEq(App.isValidPartialMask('::'), true);
+  });
+  test('isValidPartialMask rejects 3 digits in a group', () => {
+    assertEq(App.isValidPartialMask('123'), false);
+    assertEq(App.isValidPartialMask('12:345'), false);
+    assertEq(App.isValidPartialMask('0020:00:00'), false);
+  });
+  test('isValidPartialMask rejects > 2 colons', () => {
+    assertEq(App.isValidPartialMask('1:2:3:4'), false);
+  });
+  test('isValidPartialMask rejects non-digit/non-colon', () => {
+    assertEq(App.isValidPartialMask('1a'), false);
+    assertEq(App.isValidPartialMask('12-34'), false);
+  });
+
+  /* ---------------- StopwatchState transitions ---------------- */
+  test('Stopwatch idle initial', () => {
+    const sw = new App.StopwatchState(() => 0);
+    assertEq(sw.getStateLabel(), 'idle');
+    assertEq(sw.getCurrentMs(), 0);
+  });
+  test('Stopwatch idle -> running', () => {
+    let t = 0;
+    const sw = new App.StopwatchState(() => t);
+    sw.start();
+    assertEq(sw.getStateLabel(), 'running');
+    t = 1500;
+    assertEq(sw.getCurrentMs(), 1500);
+  });
+  test('Stopwatch running -> paused -> continue', () => {
+    let t = 0;
+    const sw = new App.StopwatchState(() => t);
+    sw.start();
+    t = 1000;
+    sw.pause();
+    assertEq(sw.getStateLabel(), 'paused');
+    assertEq(sw.getCurrentMs(), 1000);
+    t = 5000; // time passes while paused
+    assertEq(sw.getCurrentMs(), 1000); // does not accumulate
+    sw.start();
+    t = 5500;
+    assertEq(sw.getStateLabel(), 'running');
+    assertEq(sw.getCurrentMs(), 1500);
+  });
+  test('Stopwatch clear -> idle', () => {
+    let t = 0;
+    const sw = new App.StopwatchState(() => t);
+    sw.start(); t = 999;
+    sw.pause();
+    sw.clear();
+    assertEq(sw.getStateLabel(), 'idle');
+    assertEq(sw.getCurrentMs(), 0);
+  });
+
+  /* ---------------- CountdownState transitions ---------------- */
+  test('Countdown idle initial', () => {
+    const cd = new App.CountdownState(() => 0);
+    assertEq(cd.getStateLabel(), 'idle');
+    assertEq(cd.getCurrentMs(), 0);
+  });
+  test('Countdown cannot start with 0', () => {
+    const cd = new App.CountdownState(() => 0);
+    cd.start();
+    assertEq(cd.getStateLabel(), 'idle');
+  });
+  test('Countdown setTotal -> running -> paused -> continue', () => {
+    let t = 0;
+    const cd = new App.CountdownState(() => t);
+    cd.setTotal(10000);
+    cd.start();
+    assertEq(cd.getStateLabel(), 'running');
+    t = 3000;
+    assertEq(cd.getCurrentMs(), 7000);
+    cd.pause();
+    assertEq(cd.getStateLabel(), 'paused');
+    t = 9999;
+    assertEq(cd.getCurrentMs(), 7000); // pause freezes time
+    cd.start();
+    t = 11999;
+    assertEq(cd.getCurrentMs(), 5000);
+  });
+  test('Countdown finished when current reaches 0', () => {
+    let t = 0;
+    const cd = new App.CountdownState(() => t);
+    cd.setTotal(1000);
+    cd.start();
+    t = 1500;
+    assertTrue(cd.isFinished(), 'should be finished');
+    assertEq(cd.getCurrentMs(), 0);
+  });
+  test('Countdown clear -> idle', () => {
+    let t = 0;
+    const cd = new App.CountdownState(() => t);
+    cd.setTotal(2000);
+    cd.start();
+    t = 500;
+    cd.pause();
+    assertEq(cd.getStateLabel(), 'paused');
+    cd.clear();
+    assertEq(cd.getStateLabel(), 'idle');
+    assertEq(cd.getCurrentMs(), 0);
+  });
+
+  /* ---------------- Done ---------------- */
+  summary.textContent = `${pass} passed, ${fail} failed (${pass + fail} total)`;
+  summary.className = fail === 0 ? 'ok' : 'fail';
+})();
+</script>
+</body>
+</html>
